@@ -35,3 +35,6 @@
 station/tc.key
 station/station.eui
 station/tc.trust
+station/cups.uri
+station/cups.key
+station/cups.trust

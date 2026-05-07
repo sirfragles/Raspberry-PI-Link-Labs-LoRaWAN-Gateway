@@ -1,0 +1,24 @@
+# CUPS (Configuration and Update Server) — optional
+
+CUPS lets The Things Stack push channel-plan / firmware updates to the
+gateway. For a single home gateway this is overkill — stick to LNS only
+(`tc.uri` + `tc.key` + `tc.trust`).
+
+If you want CUPS anyway, on the gateway:
+
+```bash
+sudo cp /opt/linklabs/station/cups.uri.example /opt/linklabs/station/cups.uri
+sudo cp /opt/linklabs/station/cups.key.example /opt/linklabs/station/cups.key
+sudo cp /opt/linklabs/station/tc.trust          /opt/linklabs/station/cups.trust
+sudo nano /opt/linklabs/station/cups.key   # paste real CUPS key
+sudo chmod 600 /opt/linklabs/station/cups.key
+sudo systemctl restart linklabs
+```
+
+When both `cups.*` and `tc.*` are present, Basic Station uses CUPS at
+boot to (re)fetch the LNS credentials, then connects to LNS as usual.
+
+Generate the CUPS key in TTN console with the
+`Link as Gateway to a Gateway Server for traffic exchange` permission
+plus `View gateway status` (and optionally `Edit basic gateway settings`
+if you want CUPS to be able to overwrite the local config).
