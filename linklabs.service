@@ -1,8 +1,10 @@
 [Unit]
-Description=Link Labs LoRa Gateway
+Description=Link Labs LoRa Gateway (Basic Station)
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-WorkingDirectory=/opt/linklabs/bin/
+WorkingDirectory=/opt/linklabs/station
 ExecStart=/opt/linklabs/bin/start.sh
 SyslogIdentifier=linklabs
 Restart=on-failure

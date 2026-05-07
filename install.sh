@@ -1,6 +1,6 @@
 #!/bin/bash
+# Basic Station installer for Link Labs RPi LoRaWAN hat (SX1301) on Raspbian Bullseye.
 
-# Stop on the first sign of trouble
 set -e
 
 if [ $UID != 0 ]; then
@@ -8,7 +8,7 @@ if [ $UID != 0 ]; then
     exit 1
 fi
 
-echo "Link Labs Gateway installer"
+echo "Link Labs Gateway installer (Basic Station)"
 
 # Update the gateway installer to the correct branch
 echo "Updating installer files..."
@@ -21,71 +21,74 @@ NEW_HEAD=$(git rev-parse HEAD)
 
 if [[ $OLD_HEAD != $NEW_HEAD ]]; then
     echo "New installer found. Restarting process..."
-    exec "./install.sh"
+    exec ./install.sh "$@"
 fi
 
-# Check dependencies
+# Dependencies
 echo "Installing dependencies..."
-sudo apt-get install swig python-dev -y
-sudo apt-get install wiringpi -y
+apt-get update
+apt-get install -y build-essential git raspi-gpio ca-certificates curl
 
-# Install LoRaWAN packet forwarder repositories
 INSTALL_DIR="/opt/linklabs"
-if [ ! -d "$INSTALL_DIR" ]; then mkdir $INSTALL_DIR; fi
-pushd $INSTALL_DIR
+STATION_DIR="$INSTALL_DIR/station"
+SRC_DIR="$INSTALL_DIR/src"
 
-# Build LoRa gateway app
-if [ ! -d lora_gateway ]; then
-    git clone --branch v3.2.1 https://github.com/Lora-net/lora_gateway.git
-    pushd lora_gateway
-else
-    pushd lora_gateway
-    git reset --hard
-    #git pull
+mkdir -p "$INSTALL_DIR" "$SRC_DIR"
+
+# Build Basic Station
+pushd "$SRC_DIR"
+if [ ! -d basicstation ]; then
+    git clone --branch v2.0.6 https://github.com/lorabasics/basicstation.git
+fi
+pushd basicstation
+git reset --hard
+# Build for Raspberry Pi, standard SX1301 driver (works for Link Labs / IMST hats).
+make platform=rpi variant=std
+popd
+popd
+
+# Lay out runtime directory
+mkdir -p "$STATION_DIR"
+cp -f "$SRC_DIR/basicstation/build-rpi-std/bin/station" "$STATION_DIR/station"
+
+# Copy configuration (does not overwrite existing local edits if present).
+cp -n ./station/station.conf "$STATION_DIR/station.conf"
+cp -n ./station/tc.uri        "$STATION_DIR/tc.uri"
+cp -n ./station/tc.key.example "$STATION_DIR/tc.key.example"
+cp -f ./station/reset_lgw.sh   "$STATION_DIR/reset_lgw.sh"
+chmod +x "$STATION_DIR/reset_lgw.sh"
+
+# Fetch LetsEncrypt root CA for TTN LNS WSS endpoint.
+if [ ! -f "$STATION_DIR/tc.trust" ]; then
+    curl -fsSL -o "$STATION_DIR/tc.trust" https://letsencrypt.org/certs/isrgrootx1.pem
 fi
 
-sed -i 's/cs_change = 1/cs_change = 0/g' libloragw/src/loragw_spi.native.c
-
-make
-
-popd
-
-# Build packet forwarder
-if [ ! -d packet_forwarder ]; then
-    git clone --branch v2.2.1 https://github.com/Lora-net/packet_forwarder.git
-    pushd packet_forwarder
-else
-    pushd packet_forwarder
-    #git pull
-    git reset --hard
+# Generate Gateway EUI from eth0 MAC if not already present.
+if [ ! -f "$STATION_DIR/station.eui" ]; then
+    MAC=$(cat /sys/class/net/eth0/address | tr -d ':')
+    EUI="${MAC:0:6}FFFE${MAC:6:6}"
+    echo "$EUI" | tr 'a-f' 'A-F' > "$STATION_DIR/station.eui"
 fi
 
-make
+echo
+echo "Gateway EUI: $(cat $STATION_DIR/station.eui)"
+echo
+if [ ! -f "$STATION_DIR/tc.key" ]; then
+    echo ">>> ACTION REQUIRED: register this EUI in TTN console as Basic Station,"
+    echo "    generate a Gateway API key, then write it to:"
+    echo "        $STATION_DIR/tc.key"
+    echo "    (file format: a single line, e.g. \"Authorization: Bearer NNSXS.xxxxx\")"
+    echo "    See $STATION_DIR/tc.key.example for the template."
+fi
 
-popd
+# Install start script + systemd service
+mkdir -p "$INSTALL_DIR/bin"
+cp -f ./start.sh "$INSTALL_DIR/bin/start.sh"
+chmod +x "$INSTALL_DIR/bin/start.sh"
 
-# Symlink
-if [ ! -d bin ]; then mkdir bin; fi
-if [ -f ./bin/basic_pkt_fwd ]; then rm ./bin/basic_pkt_fwd; fi
-if [ -f ./bin/beacon_pkt_fwd ]; then rm ./bin/beacon_pkt_fwd; fi
-if [ -f ./bin/gps_pkt_fwd ]; then rm ./bin/gps_pkt_fwd; fi
-ln -s $INSTALL_DIR/packet_forwarder/basic_pkt_fwd/basic_pkt_fwd ./bin/basic_pkt_fwd
-ln -s $INSTALL_DIR/packet_forwarder/beacon_pkt_fwd/beacon_pkt_fwd ./bin/beacon_pkt_fwd
-ln -s $INSTALL_DIR/packet_forwarder/gps_pkt_fwd/gps_pkt_fwd ./bin/gps_pkt_fwd
-cp -f ./packet_forwarder/gps_pkt_fwd/global_conf.json ./bin/global_conf.json
-
-# Reset gateway ID based on MAC
-./packet_forwarder/reset_pkt_fwd.sh start ./bin/global_conf.json
-
-popd
-
-echo "Installation completed."
-
-# Start packet forwarder as a service
-cp ./start.sh $INSTALL_DIR/bin/
 cp ./linklabs.service /etc/systemd/system/
+systemctl daemon-reload
 systemctl enable linklabs.service
 
-echo "The system will reboot in 5 seconds..."
-sleep 5
-shutdown -r now
+echo "Installation completed."
+echo "Start the gateway with: sudo systemctl start linklabs"

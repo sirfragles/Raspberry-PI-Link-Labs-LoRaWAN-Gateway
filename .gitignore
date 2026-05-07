@@ -30,3 +30,8 @@
 
 # Debug files
 *.dSYM/
+
+# Runtime secrets / per-host files (never commit)
+station/tc.key
+station/station.eui
+station/tc.trust

@@ -1,19 +1,17 @@
-#! /bin/bash
+#!/bin/bash
+# Wait for DNS, then exec Basic Station with the runtime dir.
 
-# Reset PIN
-gpio -1 mode 29 out
-gpio -1 write 29 0
-sleep 0.1
-gpio -1 write 29 1
-sleep 0.1
-gpio -1 write 29 0
-sleep 0.1
+while ! getent hosts eu1.cloud.thethings.network >/dev/null 2>&1; do
+    echo "[LoRa Gateway]: Waiting for network / DNS..."
+    sleep 10
+done
 
-# Test the connection, wait if needed.
-while [[ $(ping -c1 google.com 2>&1 | grep " 0% packet loss") == "" ]]; do
-  echo "[LoRa Gateway]: Waiting for internet connection..."
-  sleep 30
-  done
+if [ ! -f /opt/linklabs/station/tc.key ]; then
+    echo "[LoRa Gateway]: ERROR - /opt/linklabs/station/tc.key is missing." >&2
+    echo "[LoRa Gateway]: Register the gateway in TTN, paste API key into tc.key, retry." >&2
+    exit 1
+fi
 
-# Fire up the forwarder.
-/opt/linklabs/bin/gps_pkt_fwd
+cd /opt/linklabs/station
+export RADIODEV=/dev/spidev0.0
+exec ./station -h /opt/linklabs/station -i /opt/linklabs/station/reset_lgw.sh
