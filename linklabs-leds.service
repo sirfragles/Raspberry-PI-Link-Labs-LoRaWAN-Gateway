@@ -5,7 +5,7 @@ BindsTo=linklabs.service
 
 [Service]
 Type=simple
-ExecStart=/opt/linklabs/bin/leds.sh heartbeat
+ExecStart=/opt/linklabs/bin/leds.sh run
 ExecStopPost=/opt/linklabs/bin/leds.sh init-off
 Restart=on-failure
 RestartSec=5

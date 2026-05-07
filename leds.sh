@@ -1,13 +1,18 @@
 #!/bin/bash
-# Helpers to drive Link Labs hat LEDs via raspi-gpio.
-# LED1 = BCM27 (pin 13)  -- service alive
-# LED2 = BCM25 (pin 22)  -- radio heartbeat
+# Drive Link Labs hat LEDs based on Basic Station connection state.
+#
+# LED1 = BCM27 (pin 13)  -- solid ON when connected to the TTN MUXS,
+#                           OFF while disconnected / reconnecting.
+# LED2 = BCM25 (pin 22)  -- 100ms blink every 2s as a process heartbeat
+#                           (independent of network state).
+#
+# Connection state is inferred from journalctl -fu linklabs by matching
+# Basic Station log lines, since the daemon exposes no status API.
 
 LED1=27
 LED2=25
 
 set_led() {
-    # set_led <bcm-pin> <0|1>
     if [ "$2" = "1" ]; then
         raspi-gpio set "$1" op dh
     else
@@ -15,30 +20,63 @@ set_led() {
     fi
 }
 
+cleanup() {
+    set_led "$LED1" 0
+    set_led "$LED2" 0
+    [ -n "$BLINK_PID" ] && kill "$BLINK_PID" 2>/dev/null
+    [ -n "$JOURNAL_PID" ] && kill "$JOURNAL_PID" 2>/dev/null
+    exit 0
+}
+
+heartbeat_loop() {
+    trap 'set_led "$LED2" 0; exit 0' TERM INT
+    while true; do
+        set_led "$LED2" 1
+        sleep 0.1
+        set_led "$LED2" 0
+        sleep 1.9
+    done
+}
+
 case "$1" in
     on)        set_led "$2" 1 ;;
     off)       set_led "$2" 0 ;;
     init-off)
-        # Drive both LEDs low and configure as outputs.
         set_led "$LED1" 0
         set_led "$LED2" 0
         ;;
-    heartbeat)
-        # Blink LED2 forever while linklabs.service is active.
-        # Exits on SIGTERM (systemd stop).
-        trap 'set_led "$LED2" 0; exit 0' TERM INT
-        set_led "$LED1" 1
-        while systemctl is-active --quiet linklabs.service; do
-            set_led "$LED2" 1
-            sleep 0.1
-            set_led "$LED2" 0
-            sleep 1.9
-        done
+    run)
+        trap cleanup TERM INT
         set_led "$LED1" 0
         set_led "$LED2" 0
+
+        # LED2 = process heartbeat (separate background loop).
+        heartbeat_loop &
+        BLINK_PID=$!
+
+        # LED1 follows TTN connection state, parsed from Basic Station logs.
+        # Show only entries from now onward to avoid false positives from
+        # stale "Connected to MUXS" lines after a process crash.
+        journalctl -fu linklabs.service --since=now -o cat &
+        JOURNAL_PID=$!
+
+        # Read journal output line by line and react.
+        while IFS= read -r line; do
+            case "$line" in
+                *"Connected to MUXS"*)
+                    set_led "$LED1" 1
+                    ;;
+                *"Closing connection to muxs"*|\
+                *"INFOS reconnect backoff"*|\
+                *"reconnect backoff"*|\
+                *"Connection to MUXS lost"*)
+                    set_led "$LED1" 0
+                    ;;
+            esac
+        done < <(journalctl -fu linklabs.service --since=now -o cat)
         ;;
     *)
-        echo "Usage: $0 {on|off <bcm-pin>} | {init-off} | {heartbeat}" >&2
+        echo "Usage: $0 {on|off <bcm-pin>} | init-off | run" >&2
         exit 1
         ;;
 esac
