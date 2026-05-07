@@ -53,10 +53,19 @@ case "$1" in
         heartbeat_loop &
         BLINK_PID=$!
 
-        # LED1 follows TTN connection state, parsed from Basic Station logs.
-        # --since=now avoids stale "Connected to MUXS" matches from before
-        # this service started. --grep filters on the daemon side so we
-        # only get events relevant to LED1, keeping CPU/journal noise low.
+        # Determine the *current* connection state from history before
+        # tailing future events. Otherwise --since=now misses the
+        # "Connected to MUXS" line that already fired at boot, leaving
+        # LED1 dark even though the gateway is healthy.
+        LAST=$(journalctl -u linklabs.service -o cat --no-pager \
+                   --grep='Connected to MUXS|Closing connection to muxs|INFOS reconnect backoff|Connection to MUXS lost' \
+               | tail -n 1)
+        case "$LAST" in
+            *"Connected to MUXS"*) set_led "$LED1" 1 ;;
+            *)                     set_led "$LED1" 0 ;;
+        esac
+
+        # Then follow new events.
         journalctl -fu linklabs.service --since=now -o cat \
             --grep='Connected to MUXS|Closing connection to muxs|INFOS reconnect backoff|Connection to MUXS lost' \
         | while IFS= read -r line; do
