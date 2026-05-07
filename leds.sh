@@ -24,7 +24,6 @@ cleanup() {
     set_led "$LED1" 0
     set_led "$LED2" 0
     [ -n "$BLINK_PID" ] && kill "$BLINK_PID" 2>/dev/null
-    [ -n "$JOURNAL_PID" ] && kill "$JOURNAL_PID" 2>/dev/null
     exit 0
 }
 
@@ -55,25 +54,21 @@ case "$1" in
         BLINK_PID=$!
 
         # LED1 follows TTN connection state, parsed from Basic Station logs.
-        # Show only entries from now onward to avoid false positives from
-        # stale "Connected to MUXS" lines after a process crash.
-        journalctl -fu linklabs.service --since=now -o cat &
-        JOURNAL_PID=$!
-
-        # Read journal output line by line and react.
-        while IFS= read -r line; do
+        # --since=now avoids stale "Connected to MUXS" matches from before
+        # this service started. --grep filters on the daemon side so we
+        # only get events relevant to LED1, keeping CPU/journal noise low.
+        journalctl -fu linklabs.service --since=now -o cat \
+            --grep='Connected to MUXS|Closing connection to muxs|INFOS reconnect backoff|Connection to MUXS lost' \
+        | while IFS= read -r line; do
             case "$line" in
                 *"Connected to MUXS"*)
                     set_led "$LED1" 1
                     ;;
-                *"Closing connection to muxs"*|\
-                *"INFOS reconnect backoff"*|\
-                *"reconnect backoff"*|\
-                *"Connection to MUXS lost"*)
+                *)
                     set_led "$LED1" 0
                     ;;
             esac
-        done < <(journalctl -fu linklabs.service --since=now -o cat)
+        done
         ;;
     *)
         echo "Usage: $0 {on|off <bcm-pin>} | init-off | run" >&2

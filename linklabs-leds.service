@@ -9,6 +9,9 @@ ExecStart=/opt/linklabs/bin/leds.sh run
 ExecStopPost=/opt/linklabs/bin/leds.sh init-off
 Restart=on-failure
 RestartSec=5
+# Don't echo journalctl output back into the journal.
+StandardOutput=null
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
