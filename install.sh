@@ -84,11 +84,14 @@ fi
 # Install start script + systemd service
 mkdir -p "$INSTALL_DIR/bin"
 cp -f ./start.sh "$INSTALL_DIR/bin/start.sh"
-chmod +x "$INSTALL_DIR/bin/start.sh"
+cp -f ./leds.sh  "$INSTALL_DIR/bin/leds.sh"
+chmod +x "$INSTALL_DIR/bin/start.sh" "$INSTALL_DIR/bin/leds.sh"
 
-cp ./linklabs.service /etc/systemd/system/
+cp ./linklabs.service       /etc/systemd/system/
+cp ./linklabs-leds.service  /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable linklabs.service
+systemctl enable linklabs-leds.service
 
 echo "Installation completed."
 echo "Start the gateway with: sudo systemctl start linklabs"
