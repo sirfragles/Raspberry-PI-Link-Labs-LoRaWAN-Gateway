@@ -27,7 +27,7 @@ fi
 # Dependencies
 echo "Installing dependencies..."
 apt-get update
-apt-get install -y build-essential git pinctrl ca-certificates curl
+apt-get install -y build-essential git raspi-gpio ca-certificates curl
 
 INSTALL_DIR="/opt/linklabs"
 STATION_DIR="$INSTALL_DIR/station"
